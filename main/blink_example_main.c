@@ -56,7 +56,7 @@ const int VALUE_REF_0 = 1047;
 const int VALUE_REF_400 = 3243;
 const int VALUE_REF_500 = 3749;
 
-// int value_analog = 0; [utilizado durante o desenvolvimento para testes]
+int value_analog = 0;
 
 // -> inicialização de variaveis globais para referencia de mínimo e máximo nas leituas ADC
 int min_input = 0;
@@ -244,8 +244,8 @@ void app_main(void)
     while (1)
     {
         // -> funções de execução
-        compare_analog_read();
         read_analogic_in();
+        compare_analog_read();
 
         // -> frequencia de execução do loop
         vTaskDelay(1000 / portTICK_PERIOD_MS);
