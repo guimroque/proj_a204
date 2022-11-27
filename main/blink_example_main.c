@@ -13,6 +13,7 @@
 #include "esp_log.h"
 #include "led_strip.h"
 #include "sdkconfig.h"
+#include "driver/ledc.h"
 
 static const char *TAG = " leitura -> ";
 
@@ -23,6 +24,16 @@ static const char *TAG = " leitura -> ";
 #define LED_VM 15
 #define LED_VD 4
 #define LED_AM 2
+#define LEDC_OUTPUT_VOLTAGE 12
+#define LEDC_OUTPUT_CURRENT 13
+
+// -> definição constantes PWM
+#define LEDC_TIMER LEDC_TIMER_0
+#define LEDC_MODE LEDC_LOW_SPEED_MODE
+#define LEDC_CHANNEL LEDC_CHANNEL_2
+#define LEDC_DUTY_RES LEDC_TIMER_13_BIT // Set duty resolution to 13 bits
+#define LEDC_DUTY (4095)                // Set duty to 50%. ((2 ** 13) - 1) * 50% = 4095
+#define LEDC_FREQUENCY (5000)           // Frequency in Hertz. Set frequency at 5 kHz
 
 // -> valor de ref do pino analogico [sugestão: 0.3v]
 const float VALUE_REF_IN_MIN = 0.3;
@@ -34,7 +45,6 @@ const int VALUE_REF_0 = 128;
 const int VALUE_REF_400 = 694;
 const int VALUE_REF_500 = 820;
 
-static uint8_t s_led_state = 0;
 int value_analog = 0;
 
 // -> função para conversão de faixas de valores
@@ -48,6 +58,20 @@ float resize(
     return ((value - in_min) * (out_max - out_min) / (in_max - in_min)) + out_min;
 }
 
+static void write_analogic_out(int value, int channel)
+{
+
+    // -> valor de referencia para duty cycle 4095*2 = tempo máximo de ciclo
+    int duty = resize(value, 0, 255, 0, 4095 * 2);
+
+    // -> atualiza valor do duty cycle
+    ledc_set_duty(LEDC_MODE, channel, duty);
+    // -> aplica novos valores de duty cycle
+    ledc_update_duty(LEDC_MODE, channel);
+
+    return;
+}
+
 static void compare_analog_read()
 {
     // -> valor mínimo de leitura do pino analogico [deslocamento de zero para o valor de referencia]
@@ -59,8 +83,8 @@ static void compare_analog_read()
     const int min_out_current = resize(min_input, min_input, max_input, 51, 255);
     const int max_out_current = resize(max_input, min_input, max_input, 51, 255);
 
-    const int min_out_voltage = resize(min_input, min_input, max_input, 0, 204);
-    const int max_out_voltage = resize(max_input, min_input, max_input, 0, 204);
+    const int min_out_voltage = resize(min_input, min_input, max_input, 0, 255);
+    const int max_out_voltage = resize(max_input, min_input, max_input, 0, 255);
 
     // -> vetor que contem as referencias de temperatura
     const int adcRef[4] = {VALUE_REF_100_ + min_input, VALUE_REF_0 + min_input, VALUE_REF_400 + min_input, VALUE_REF_500 + min_input};
@@ -72,35 +96,42 @@ static void compare_analog_read()
 
     int out_current = value_analog < min_input ? min_out_current : value_analog > max_input ? max_out_current
                                                                                             : resize(value_analog, min_input, max_input, min_out_current, max_out_current);
-    float out_current_v = resize(out_current, 0, 255, 0, 5);
+    float out_current_v = resize(out_current, 0, 255, 0, 3.3); // -> convert to out 0 <-> 5volts
+    // -> alterar para 0 <-> 3.3volts
 
     int out_voltage = value_analog < min_input ? min_out_voltage : value_analog > max_input ? max_out_voltage
                                                                                             : resize(value_analog, min_input, max_input, min_out_voltage, max_out_voltage);
-    float out_voltage_v = resize(out_voltage, 0, 255, 0, 5);
+    float out_voltage_v = resize(out_voltage, 0, 255, 0, 3.3); // -> convert to out 0 <-> 5volts
+    // -> alterar para 0 <-> 3.3volts
 
     // -> logs dos estados
 
-    ESP_LOGI("============================================ [GPIOS] ============================================");
-    ESP_LOGI("[Input Ref. Min.] %d!", min_input);
-    ESP_LOGI("[Input Ref. Max.] %d!", max_input);
-    ESP_LOGI("[Out Ref. Min. Voltage] %d!", min_out_voltage);
-    ESP_LOGI("[Out Ref. Max. Voltage] %d!", max_out_voltage);
-    ESP_LOGI("[Out Ref. Min. Current] %d!", min_out_current);
-    ESP_LOGI("[Out Ref. Max. Current] %d!", max_out_current);
-    ESP_LOGI("[Out Current] %d!", out_current);
-    ESP_LOGI("[Out Voltage] %d!", out_voltage);
-    ESP_LOGI("[Out Current[V]] %f!", out_current_v);
-    ESP_LOGI("[Out Voltage[V]] %f!", out_voltage_v);
-    ESP_LOGI("[Analog Read] %d!", value_analog);
-    ESP_LOGI("[State AM] %d!", state_am);
-    ESP_LOGI("[State VM] %d!", state_vm);
-    ESP_LOGI("[State VD] %d!", state_vd);
-    ESP_LOGI("============================================ [GPIOS] ============================================");
+    ESP_LOGI(TAG, "============================================ [GPIOS] ============================================");
+    ESP_LOGI(TAG, "[Input Ref. Min.] %d", min_input);
+    ESP_LOGI(TAG, "[Input Ref. Max.] %d", max_input);
+    ESP_LOGI(TAG, "[Out Ref. Min. Voltage] %d", min_out_voltage);
+    ESP_LOGI(TAG, "[Out Ref. Max. Voltage] %d", max_out_voltage);
+    ESP_LOGI(TAG, "[Out Ref. Min. Current] %d", min_out_current);
+    ESP_LOGI(TAG, "[Out Ref. Max. Current] %d", max_out_current);
+    ESP_LOGI(TAG, "[Out Current] %d", out_current);
+    ESP_LOGI(TAG, "[Out Voltage] %d", out_voltage);
+    ESP_LOGI(TAG, "[Out Current[V]] %f", out_current_v);
+    ESP_LOGI(TAG, "[Out Voltage[V]] %f", out_voltage_v);
+    ESP_LOGI(TAG, "[Analog Read] %d", value_analog);
+    ESP_LOGI(TAG, "[State AM] %d", state_am);
+    ESP_LOGI(TAG, "[State VM] %d", state_vm);
+    ESP_LOGI(TAG, "[State VD] %d", state_vd);
+    ESP_LOGI(TAG, "============================================ [GPIOS] ============================================");
 
     // -> acender leds
     gpio_set_level(LED_AM, state_am);
     gpio_set_level(LED_VD, state_vd);
     gpio_set_level(LED_VM, state_vm);
+
+    // -> settar saidas analogicas
+    write_analogic_out(out_current, LEDC_CHANNEL);
+    write_analogic_out(out_current, LEDC_CHANNEL);
+
     // -> Saída de tensão deve ser convertida na faixa de 0 a 4v
     // -> converter de 10bits (1024) para 8bits (0 a 255)
     // -> converter de 0 a 255 para 0 a 4v
@@ -108,6 +139,41 @@ static void compare_analog_read()
     // -> Saída de corrente deve ser convertida na faixa de 1 a 4v
     // -> converter de 10bits (1024) para 8bits (0 a 255)
     // -> converter de 0 a 255 para 1 a 4v
+    return;
+}
+
+static void configure_analogic_out(void)
+{
+    // Set timmer do PWM
+    ledc_timer_config_t analogic_out_timer = {
+        .speed_mode = LEDC_MODE,
+        .timer_num = LEDC_TIMER,
+        .duty_resolution = LEDC_DUTY_RES,
+        .freq_hz = LEDC_FREQUENCY, // Set output frequency at 5 kHz
+        .clk_cfg = LEDC_AUTO_CLK};
+    ledc_timer_config(&analogic_out_timer);
+
+    // Set PWM
+    ledc_channel_config_t out_current_channel = {
+        .speed_mode = LEDC_MODE,         // -> velocidade do led
+        .channel = LEDC_CHANNEL,         // -> cannal de comutação dutty
+        .timer_sel = LEDC_TIMER,         // -> timmer usado para gerar o PWM
+        .intr_type = LEDC_INTR_DISABLE,  // -> interrupção[desabilitada]
+        .gpio_num = LEDC_OUTPUT_CURRENT, // -> pino onde o led está conectado
+        .duty = 4095,                    // Set duty to 50%
+        .hpoint = 0};
+    ledc_channel_config(&out_current_channel);
+
+    ledc_channel_config_t out_voltage_channel = {
+        .speed_mode = LEDC_MODE,         // -> velocidade do led
+        .channel = LEDC_CHANNEL,         // -> cannal de comutação dutty
+        .timer_sel = LEDC_TIMER,         // -> timmer usado para gerar o PWM
+        .intr_type = LEDC_INTR_DISABLE,  // -> interrupção[desabilitada]
+        .gpio_num = LEDC_OUTPUT_VOLTAGE, // -> pino onde o led está conectado
+        .duty = 4095,                    // Set duty to 50%
+        .hpoint = 0};
+    ledc_channel_config(&out_voltage_channel);
+
     return;
 }
 
@@ -128,7 +194,7 @@ void app_main(void)
 
     // -> chamando a função de configuração para os pinos usados
     configure_gpios();
-
+    configure_analogic_out();
     while (1)
     {
         // -> leitura do pino analogico e aletação dos estados de saída
