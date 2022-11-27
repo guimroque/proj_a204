@@ -36,22 +36,36 @@ const int VALUE_REF_500 = 820;
 static uint8_t s_led_state = 0;
 int value_analog = 0;
 // -> valor da entrada de referencia convertido em 10bits
-const int min_input = VALUE_REF_IN * 204.8;
-const int adcRef[4] = {VALUE_REF_100_ + min_input, VALUE_REF_0 + min_input, VALUE_REF_400 + min_input, VALUE_REF_500 + min_input};
+
+float resize(
+    float value,
+    float in_min,
+    float in_max,
+    float out_min,
+    float out_max)
+{
+    return ((value - in_min) * (out_max - out_min) / (in_max - in_min)) + out_min;
+}
 
 static void compare_analog_read()
 {
+    // -> valor mínimo de leitura do pino analogico [deslocamento de zero para o valor de referencia]
+    const int min_input = resize(VALUE_REF_IN, 0, 5, 0, 1023);
+    // -> vetor que contem as referencias de temperatura
+    const int adcRef[4] = {VALUE_REF_100_ + min_input, VALUE_REF_0 + min_input, VALUE_REF_400 + min_input, VALUE_REF_500 + min_input};
+
     // -> decisão de qual led acender
     bool state_vm = value_analog <= adcRef[0] || value_analog >= adcRef[3];
-
     bool state_am = (value_analog > adcRef[0] && value_analog < adcRef[1]) || (value_analog < adcRef[3] && value_analog > adcRef[2]);
-
     bool state_vd = value_analog > adcRef[1] && value_analog <= adcRef[2];
+
     // -> logs dos estados
     ESP_LOGI(TAG, "[Analog Read] %d!", value_analog);
+    ESP_LOGI(TAG, "[Input Ref.] %d!", min_input);
     ESP_LOGI(TAG, "[State AM] %d!", state_am);
     ESP_LOGI(TAG, "[State VM] %d!", state_vm);
     ESP_LOGI(TAG, "[State VD] %d!", state_vd);
+
     // -> acender leds
     gpio_set_level(LED_AM, state_am);
     gpio_set_level(LED_VD, state_vd);
