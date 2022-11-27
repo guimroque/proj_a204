@@ -14,6 +14,7 @@
 #include "led_strip.h"
 #include "sdkconfig.h"
 #include "driver/ledc.h"
+#include "esp_adc/adc_oneshot.h"
 
 static const char *TAG = " leitura -> ";
 
@@ -35,18 +36,38 @@ static const char *TAG = " leitura -> ";
 #define LEDC_DUTY (4095)                // Set duty to 50%. ((2 ** 13) - 1) * 50% = 4095
 #define LEDC_FREQUENCY (5000)           // Frequency in Hertz. Set frequency at 5 kHz
 
-// -> valor de ref do pino analogico [sugestão: 0.3v]
-const float VALUE_REF_IN_MIN = 0.3;
-const float VALUE_REF_IN_MAX = 4.3;
+// -> definição constantes leitura analogica
+#define EXAMPLE_ADC1_CHAN0 ADC_CHANNEL_4
+#define EXAMPLE_ADC_ATTEN ADC_ATTEN_DB_11
+
+static int adc_raw[2][10];
+
+// -> valores de referencia para leitura ADC
+const float VALUE_REF_IN_MIN = 0.35;
+const float VALUE_REF_IN_MAX = 2.2;
+
+const float VALUE_ADC_IN_MIN = 0.15;
+const float VALUE_ADC_IN_MAX = 2.45;
+const float VALUE_ADC_SCALE = 4095;
 
 // -> valores de referencia para temperatura
-const int VALUE_REF_100_ = 0;
-const int VALUE_REF_0 = 128;
-const int VALUE_REF_400 = 694;
-const int VALUE_REF_500 = 820;
+const int VALUE_REF_100_ = 454;
+const int VALUE_REF_0 = 1047;
+const int VALUE_REF_400 = 3243;
+const int VALUE_REF_500 = 3749;
 
 int value_analog = 0;
+int min_input = 0;
+int max_input = 0;
 
+adc_oneshot_unit_handle_t adc1_handle;
+adc_oneshot_unit_init_cfg_t init_config1 = {
+    .unit_id = ADC_UNIT_1,
+};
+adc_oneshot_chan_cfg_t config = {
+    .bitwidth = ADC_BITWIDTH_DEFAULT,
+    .atten = EXAMPLE_ADC_ATTEN,
+};
 // -> função para conversão de faixas de valores
 float resize(
     float value,
@@ -75,8 +96,8 @@ static void write_analogic_out(int value, int channel)
 static void compare_analog_read()
 {
     // -> valor mínimo de leitura do pino analogico [deslocamento de zero para o valor de referencia]
-    const int min_input = resize(VALUE_REF_IN_MIN, 0, 5, 0, 1023);
-    const int max_input = resize(VALUE_REF_IN_MAX, 0, 5, 0, 1023);
+    min_input = resize(VALUE_REF_IN_MIN, VALUE_ADC_IN_MIN, VALUE_ADC_IN_MAX, 0, VALUE_ADC_SCALE);
+    max_input = resize(VALUE_REF_IN_MAX, VALUE_ADC_IN_MIN, VALUE_ADC_IN_MAX, 0, VALUE_ADC_SCALE);
 
     // -> valores de referencia convertido em 8bits
     // -> corrente variando de 1 a 5 volts
@@ -121,6 +142,10 @@ static void compare_analog_read()
     ESP_LOGI(TAG, "[State AM] %d", state_am);
     ESP_LOGI(TAG, "[State VM] %d", state_vm);
     ESP_LOGI(TAG, "[State VD] %d", state_vd);
+    for (int i = 0; i < 4; i++)
+    {
+        ESP_LOGI(TAG, "[Ref. %d] %d", i, adcRef[i]);
+    }
     ESP_LOGI(TAG, "============================================ [GPIOS] ============================================");
 
     // -> acender leds
@@ -177,6 +202,24 @@ static void configure_analogic_out(void)
     return;
 }
 
+static void configure_analogic_in(void)
+{
+    //-------------ADC1 Init---------------//
+
+    adc_oneshot_new_unit(&init_config1, &adc1_handle);
+
+    //-------------ADC1 Config---------------//
+    adc_oneshot_config_channel(adc1_handle, EXAMPLE_ADC1_CHAN0, &config);
+}
+
+static void read_analogic_in()
+{
+    adc_oneshot_read(adc1_handle, EXAMPLE_ADC1_CHAN0, &adc_raw[0][0]);
+    ESP_LOGI(TAG, "ADC%d Channel[%d] Raw Data: %d", ADC_UNIT_1 + 1, EXAMPLE_ADC1_CHAN0, adc_raw[0][0] + min_input);
+    value_analog = adc_raw[0][0] + min_input;
+    return;
+}
+
 // -> [ CONFIGURE_LED ] -> Configura os dispositivos de entrada e saída
 static void configure_gpios(void)
 {
@@ -195,15 +238,17 @@ void app_main(void)
     // -> chamando a função de configuração para os pinos usados
     configure_gpios();
     configure_analogic_out();
+    configure_analogic_in();
+
     while (1)
     {
         // -> leitura do pino analogico e aletação dos estados de saída
         compare_analog_read();
-
-        if (value_analog >= 1024)
-            value_analog = 0;
-        else
-            value_analog += 10;
+        read_analogic_in();
+        // if (value_analog >= VALUE_ADC_SCALE)
+        //     value_analog = 0;
+        // else
+        //     value_analog += 50;
 
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
