@@ -28,7 +28,7 @@ static const char *TAG = " leitura -> ";
 #define LEDC_OUTPUT_VOLTAGE 12
 #define LEDC_OUTPUT_CURRENT 13
 
-// -> definição constantes PWM
+// -> definição constantes para configuração do pino PWM
 #define LEDC_TIMER LEDC_TIMER_0
 #define LEDC_MODE LEDC_LOW_SPEED_MODE
 #define LEDC_CHANNEL LEDC_CHANNEL_2
@@ -36,16 +36,16 @@ static const char *TAG = " leitura -> ";
 #define LEDC_DUTY (4095)                // Set duty to 50%. ((2 ** 13) - 1) * 50% = 4095
 #define LEDC_FREQUENCY (5000)           // Frequency in Hertz. Set frequency at 5 kHz
 
-// -> definição constantes leitura analogica
+// -> definição constantes para configuração do pino ADC
 #define EXAMPLE_ADC1_CHAN0 ADC_CHANNEL_4
 #define EXAMPLE_ADC_ATTEN ADC_ATTEN_DB_11
 
+// -> vetor para armazenar valor lido no pino ADC
 static int adc_raw[2][10];
 
 // -> valores de referencia para leitura ADC
 const float VALUE_REF_IN_MIN = 0.35;
 const float VALUE_REF_IN_MAX = 2.2;
-
 const float VALUE_ADC_IN_MIN = 0.15;
 const float VALUE_ADC_IN_MAX = 2.45;
 const float VALUE_ADC_SCALE = 4095;
@@ -56,10 +56,13 @@ const int VALUE_REF_0 = 1047;
 const int VALUE_REF_400 = 3243;
 const int VALUE_REF_500 = 3749;
 
-int value_analog = 0;
+// int value_analog = 0; [utilizado durante o desenvolvimento para testes]
+
+// -> inicialização de variaveis globais para referencia de mínimo e máximo nas leituas ADC
 int min_input = 0;
 int max_input = 0;
 
+// -> Inicialização do ADC
 adc_oneshot_unit_handle_t adc1_handle;
 adc_oneshot_unit_init_cfg_t init_config1 = {
     .unit_id = ADC_UNIT_1,
@@ -68,7 +71,8 @@ adc_oneshot_chan_cfg_t config = {
     .bitwidth = ADC_BITWIDTH_DEFAULT,
     .atten = EXAMPLE_ADC_ATTEN,
 };
-// -> função para conversão de faixas de valores
+
+// -> Função para conversão de faixas de valores
 float resize(
     float value,
     float in_min,
@@ -81,7 +85,7 @@ float resize(
 
 static void write_analogic_out(int value, int channel)
 {
-
+    // -> converte o valor de duty de 8bits para 12bits
     // -> valor de referencia para duty cycle 4095*2 = tempo máximo de ciclo
     int duty = resize(value, 0, 255, 0, 4095 * 2);
 
@@ -95,38 +99,39 @@ static void write_analogic_out(int value, int channel)
 
 static void compare_analog_read()
 {
-    // -> valor mínimo de leitura do pino analogico [deslocamento de zero para o valor de referencia]
+    // -> Reajuste do offset [deslocamento de zero para o valor de referencia]
     min_input = resize(VALUE_REF_IN_MIN, VALUE_ADC_IN_MIN, VALUE_ADC_IN_MAX, 0, VALUE_ADC_SCALE);
     max_input = resize(VALUE_REF_IN_MAX, VALUE_ADC_IN_MIN, VALUE_ADC_IN_MAX, 0, VALUE_ADC_SCALE);
 
-    // -> valores de referencia convertido em 8bits
-    // -> corrente variando de 1 a 5 volts
+    // -> calcula os valores de referencia para corrente em 8bits
     const int min_out_current = resize(min_input, min_input, max_input, 51, 255);
     const int max_out_current = resize(max_input, min_input, max_input, 51, 255);
 
+    // -> calcula os valores de referencia para tensao em 8bits
     const int min_out_voltage = resize(min_input, min_input, max_input, 0, 255);
     const int max_out_voltage = resize(max_input, min_input, max_input, 0, 255);
 
-    // -> vetor que contem as referencias de temperatura
+    // -> Vetor com as referencias de temperatura usadas na sinalização, e um adicional do offset, para reajustar a comparação
     const int adcRef[4] = {VALUE_REF_100_ + min_input, VALUE_REF_0 + min_input, VALUE_REF_400 + min_input, VALUE_REF_500 + min_input};
 
-    // -> decisão de qual led acender
+    // -> Lógica booleana que decide qual led deve ser acesso
     bool state_vm = value_analog <= adcRef[0] || value_analog >= adcRef[3];
     bool state_am = (value_analog > adcRef[0] && value_analog < adcRef[1]) || (value_analog < adcRef[3] && value_analog > adcRef[2]);
     bool state_vd = value_analog > adcRef[1] && value_analog <= adcRef[2];
 
+    // -> atualiza valor do duty cycle para a saída de tensão, com travamento de limites maximos e mínimos [1 a 3.3v]
     int out_current = value_analog < min_input ? min_out_current : value_analog > max_input ? max_out_current
                                                                                             : resize(value_analog, min_input, max_input, min_out_current, max_out_current);
-    float out_current_v = resize(out_current, 0, 255, 0, 3.3); // -> convert to out 0 <-> 5volts
-    // -> alterar para 0 <-> 3.3volts
+    // -> faz a conversão do valor calculado em 8bits para 0 a 3.3v, apenas para log
+    float out_current_v = resize(out_current, 0, 255, 0, 3.3);
 
+    // -> atualiza valor do duty cycle para a saída de tensão, com travamento de limites maximos e mínimos [0 a 3.3v]
     int out_voltage = value_analog < min_input ? min_out_voltage : value_analog > max_input ? max_out_voltage
                                                                                             : resize(value_analog, min_input, max_input, min_out_voltage, max_out_voltage);
-    float out_voltage_v = resize(out_voltage, 0, 255, 0, 3.3); // -> convert to out 0 <-> 5volts
-    // -> alterar para 0 <-> 3.3volts
+    // -> faz a conversão do valor calculado em 8bits para 0 a 3.3v, apenas para log
+    float out_voltage_v = resize(out_voltage, 0, 255, 0, 3.3);
 
     // -> logs dos estados
-
     ESP_LOGI(TAG, "============================================ [GPIOS] ============================================");
     ESP_LOGI(TAG, "[Input Ref. Min.] %d", min_input);
     ESP_LOGI(TAG, "[Input Ref. Max.] %d", max_input);
@@ -157,16 +162,10 @@ static void compare_analog_read()
     write_analogic_out(out_current, LEDC_CHANNEL);
     write_analogic_out(out_current, LEDC_CHANNEL);
 
-    // -> Saída de tensão deve ser convertida na faixa de 0 a 4v
-    // -> converter de 10bits (1024) para 8bits (0 a 255)
-    // -> converter de 0 a 255 para 0 a 4v
-    // -> resize(value_analog, min_input, );
-    // -> Saída de corrente deve ser convertida na faixa de 1 a 4v
-    // -> converter de 10bits (1024) para 8bits (0 a 255)
-    // -> converter de 0 a 255 para 1 a 4v
     return;
 }
 
+// -> Faz a configuração e inicia os pinos de pwm [Saídas de tensão e corrente]
 static void configure_analogic_out(void)
 {
     // Set timmer do PWM
@@ -185,7 +184,7 @@ static void configure_analogic_out(void)
         .timer_sel = LEDC_TIMER,         // -> timmer usado para gerar o PWM
         .intr_type = LEDC_INTR_DISABLE,  // -> interrupção[desabilitada]
         .gpio_num = LEDC_OUTPUT_CURRENT, // -> pino onde o led está conectado
-        .duty = 4095,                    // Set duty to 50%
+        .duty = 0,                       // Set duty to 50%
         .hpoint = 0};
     ledc_channel_config(&out_current_channel);
 
@@ -195,38 +194,40 @@ static void configure_analogic_out(void)
         .timer_sel = LEDC_TIMER,         // -> timmer usado para gerar o PWM
         .intr_type = LEDC_INTR_DISABLE,  // -> interrupção[desabilitada]
         .gpio_num = LEDC_OUTPUT_VOLTAGE, // -> pino onde o led está conectado
-        .duty = 4095,                    // Set duty to 50%
+        .duty = 0,                       // Set duty to 50%
         .hpoint = 0};
     ledc_channel_config(&out_voltage_channel);
 
     return;
 }
 
+// -> Faz configuração do pino ADC [Entrada Analógica]
 static void configure_analogic_in(void)
 {
-    //-------------ADC1 Init---------------//
-
+    // -> inicia o adc
     adc_oneshot_new_unit(&init_config1, &adc1_handle);
-
-    //-------------ADC1 Config---------------//
+    // -> configura o adc
     adc_oneshot_config_channel(adc1_handle, EXAMPLE_ADC1_CHAN0, &config);
 }
 
+// -> Faz a leitura do pino analogico
 static void read_analogic_in()
 {
-    adc_oneshot_read(adc1_handle, EXAMPLE_ADC1_CHAN0, &adc_raw[0][0]);
-    ESP_LOGI(TAG, "ADC%d Channel[%d] Raw Data: %d", ADC_UNIT_1 + 1, EXAMPLE_ADC1_CHAN0, adc_raw[0][0] + min_input);
-    value_analog = adc_raw[0][0] + min_input;
+    adc_oneshot_read(adc1_handle, EXAMPLE_ADC1_CHAN0, &adc_raw[0][0]);                                              // -> leitura
+    ESP_LOGI(TAG, "ADC%d Channel[%d] Raw Data: %d", ADC_UNIT_1 + 1, EXAMPLE_ADC1_CHAN0, adc_raw[0][0] + min_input); // -> log
+    value_analog = adc_raw[0][0] + min_input;                                                                       // -> seta a constante de monitoramento do pino analogico com o valor lido
     return;
 }
 
-// -> [ CONFIGURE_LED ] -> Configura os dispositivos de entrada e saída
+// -> Configura os leds como dispositos digitais de saída
 static void configure_gpios(void)
 {
+    // -> reseta os pinos
     gpio_reset_pin(LED_AM);
     gpio_reset_pin(LED_VD);
     gpio_reset_pin(LED_VM);
 
+    // -> configura os pinos como saída
     gpio_set_direction(LED_AM, GPIO_MODE_OUTPUT);
     gpio_set_direction(LED_VD, GPIO_MODE_OUTPUT);
     gpio_set_direction(LED_VM, GPIO_MODE_OUTPUT);
@@ -235,21 +236,18 @@ static void configure_gpios(void)
 void app_main(void)
 {
 
-    // -> chamando a função de configuração para os pinos usados
+    // -> funções de configuração
     configure_gpios();
     configure_analogic_out();
     configure_analogic_in();
 
     while (1)
     {
-        // -> leitura do pino analogico e aletação dos estados de saída
+        // -> funções de execução
         compare_analog_read();
         read_analogic_in();
-        // if (value_analog >= VALUE_ADC_SCALE)
-        //     value_analog = 0;
-        // else
-        //     value_analog += 50;
 
+        // -> frequencia de execução do loop
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
