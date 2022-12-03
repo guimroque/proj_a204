@@ -104,8 +104,8 @@ static void compare_analog_read()
     max_input = resize(VALUE_REF_IN_MAX, VALUE_ADC_IN_MIN, VALUE_ADC_IN_MAX, 0, VALUE_ADC_SCALE);
 
     // -> calcula os valores de referencia para corrente em 8bits
-    const int min_out_current = resize(min_input, min_input, max_input, 51, 255);
-    const int max_out_current = resize(max_input, min_input, max_input, 51, 255);
+    const int min_out_current = resize(min_input, min_input, max_input, 38, 193);
+    const int max_out_current = resize(max_input, min_input, max_input, 38, 193);
 
     // -> calcula os valores de referencia para tensao em 8bits
     const int min_out_voltage = resize(min_input, min_input, max_input, 0, 255);
@@ -119,11 +119,11 @@ static void compare_analog_read()
     bool state_am = (value_analog > adcRef[0] && value_analog < adcRef[1]) || (value_analog < adcRef[3] && value_analog > adcRef[2]);
     bool state_vd = value_analog > adcRef[1] && value_analog <= adcRef[2];
 
-    // -> atualiza valor do duty cycle para a saída de tensão, com travamento de limites maximos e mínimos [1 a 3.3v]
+    // -> atualiza valor do duty cycle para a saída de tensão, com travamento de limites maximos e mínimos [0.5 a 2.5v]
     int out_current = value_analog < min_input ? min_out_current : value_analog > max_input ? max_out_current
                                                                                             : resize(value_analog, min_input, max_input, min_out_current, max_out_current);
     // -> faz a conversão do valor calculado em 8bits para 0 a 3.3v, apenas para log
-    float out_current_v = resize(out_current, 0, 255, 0, 3.3);
+    float out_current_v = resize(out_current, 0, 255, 0.5, 2.5);
 
     // -> atualiza valor do duty cycle para a saída de tensão, com travamento de limites maximos e mínimos [0 a 3.3v]
     int out_voltage = value_analog < min_input ? min_out_voltage : value_analog > max_input ? max_out_voltage
